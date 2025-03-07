@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-
+import 'package:hive_ce/hive.dart';
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
 
@@ -9,8 +9,20 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  //get box
+  final myBox = Hive.box("My_Box");
+
   final _controller = TextEditingController();
   TodoPriority priority = TodoPriority.Normal;
+
+  @override
+  void initState() {
+    //load data, if none exists then normal view
+
+    //type cast here as it is not dynamic
+    MyTodo.todos = (myBox.get("Todo_List") as List?)?.cast<MyTodo>() ?? [];
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,19 +45,34 @@ class _MyHomePageState extends State<MyHomePage> {
             ? Center(
                 child: Text("Nothing to do!"),
               )
-            : ListView.builder(
-                itemCount: MyTodo.todos.length,
-                itemBuilder: (context, index) {
-                  final todo = MyTodo.todos[index];
-                  return TodoItem(
-                      todo: todo,
-                      onChanged: (value) {
-                        setState(() {
-                          MyTodo.todos[index].completed = value;
-                        });
-                      });
-                },
-              ));
+            : buildListView());
+  }
+
+  ListView buildListView() {
+    return ListView.builder(
+      itemCount: MyTodo.todos.length,
+      itemBuilder: (context, index) {
+        final todo = MyTodo.todos[index];
+        return TodoItem(
+            todo: todo,
+            onChanged: (value) {
+              setState(() {
+                //MyTodo.todos[index].completed = value;
+                if (value == true) {
+                  MyTodo.todos.removeAt(index);
+                  saveToDatabase();
+                } else {
+                  MyTodo.todos[index].completed = value;
+                }
+              });
+            });
+      },
+    );
+  }
+
+  //save to database
+  void saveToDatabase() {
+    myBox.put("Todo_List", MyTodo.todos);
   }
 
   void addTodo() {
@@ -125,7 +152,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _controller.clear();
     setState(() {});
     Navigator.pop(context);
-
+    saveToDatabase();
   }
 }
 
@@ -161,10 +188,18 @@ class TodoItem extends StatelessWidget {
   }
 }
 
+@HiveType(typeId: 0) // Assign a unique type ID
 class MyTodo {
+  @HiveField(0)
   int id;
+
+  @HiveField(1)
   String name;
+
+  @HiveField(2)
   bool completed;
+
+  @HiveField(3)
   TodoPriority priority;
 
   MyTodo({
@@ -177,4 +212,51 @@ class MyTodo {
   static List<MyTodo> todos = [];
 }
 
-enum TodoPriority { Low, Normal, High }
+@HiveType(typeId: 1) // Unique type ID for enum
+enum TodoPriority {
+  @HiveField(0)
+  Low,
+  @HiveField(1)
+  Normal,
+  @HiveField(2)
+  High
+}
+//enum TodoPriority { Low, Normal, High }
+
+class MyTodoAdapter extends TypeAdapter<MyTodo> {
+  @override
+  final int typeId = 0;
+
+  @override
+  MyTodo read(BinaryReader reader) {
+    return MyTodo(
+      id: reader.readInt(),
+      name: reader.readString(),
+      completed: reader.readBool(),
+      priority: TodoPriority.values[reader.readInt()],
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, MyTodo obj) {
+    writer.writeInt(obj.id);
+    writer.writeString(obj.name);
+    writer.writeBool(obj.completed);
+    writer.writeInt(obj.priority.index);
+  }
+}
+
+class TodoPriorityAdapter extends TypeAdapter<TodoPriority> {
+  @override
+  final int typeId = 1;
+
+  @override
+  TodoPriority read(BinaryReader reader) {
+    return TodoPriority.values[reader.readInt()];
+  }
+
+  @override
+  void write(BinaryWriter writer, TodoPriority obj) {
+    writer.writeInt(obj.index);
+  }
+}
